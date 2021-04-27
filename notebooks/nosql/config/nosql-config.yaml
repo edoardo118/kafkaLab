@@ -1,0 +1,18 @@
+neo4j:
+    host: 54.195.117.194
+    port: 7687
+    username: neo4j
+    pwd: qc-neo4j
+    
+mongodb:
+    host: 54.195.117.194
+    port: 27017
+    username: qc-mongo
+    pwd: quantia-mdb
+
+es:
+    host: 54.195.117.194
+    port: 9200
+    username: elastic
+    pwd: quantia-es 
+    

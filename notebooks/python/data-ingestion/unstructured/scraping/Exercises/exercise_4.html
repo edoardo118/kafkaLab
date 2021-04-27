@@ -1,0 +1,227 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>exercise_4</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="exercise-4">Exercise 4</h2>
+<p>In this final exercise, we understand how to extract data without having a predefined list of links (as in previous examples). In this case, the solution is to <strong>query</strong> the website through the <strong>search bar</strong>.</p>
+<h3 id="example-tripadvisor">Example: TripAdvisor</h3>
+<p>Imports and global variables, as usual.</p>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">from</span> selenium <span class="token keyword">import</span> webdriver
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>chrome<span class="token punctuation">.</span>options <span class="token keyword">import</span> Options
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>keys <span class="token keyword">import</span> Keys
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support<span class="token punctuation">.</span>ui <span class="token keyword">import</span> WebDriverWait
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>by <span class="token keyword">import</span> By
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support <span class="token keyword">import</span> expected_conditions <span class="token keyword">as</span> EC
+<span class="token keyword">from</span> bs4 <span class="token keyword">import</span> BeautifulSoup
+<span class="token keyword">import</span> re
+<span class="token keyword">from</span> pymongo <span class="token keyword">import</span> MongoClient
+<span class="token keyword">from</span> pymongo<span class="token punctuation">.</span>errors <span class="token keyword">import</span> DuplicateKeyError
+
+MAX_WAIT <span class="token operator">=</span> <span class="token number">10</span>
+</code></pre>
+<p>We define a function to store the review data that is based on the code of exercise 1.</p>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">def</span> <span class="token function">get_place_data</span><span class="token punctuation">(</span>response<span class="token punctuation">)</span><span class="token punctuation">:</span>
+    <span class="token comment"># prepare a dictionary to store results</span>
+    place <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+    <span class="token comment"># get place name</span>
+    name <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'h1'</span><span class="token punctuation">,</span> attrs<span class="token operator">=</span><span class="token punctuation">{</span><span class="token string">'id'</span><span class="token punctuation">:</span> <span class="token string">'HEADING'</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+    place<span class="token punctuation">[</span><span class="token string">'name'</span><span class="token punctuation">]</span> <span class="token operator">=</span> name
+
+    <span class="token comment"># get number of reviews</span>
+    num_reviews <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'reviewCount'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+    num_reviews <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>num_reviews<span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">' '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">.</span>replace<span class="token punctuation">(</span><span class="token string">'.'</span><span class="token punctuation">,</span> <span class="token string">''</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    place<span class="token punctuation">[</span><span class="token string">'review'</span><span class="token punctuation">]</span> <span class="token operator">=</span> num_reviews
+
+    <span class="token comment"># get rating using a regular expression to find the correct class</span>
+    overall_rating <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> 
+				<span class="token punctuation">{</span><span class="token string">"class"</span><span class="token punctuation">:</span> re<span class="token punctuation">.</span><span class="token builtin">compile</span><span class="token punctuation">(</span><span class="token string">"ui_bubble_rating\sbubble_.."</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token string">'alt'</span><span class="token punctuation">]</span>
+    overall_rating <span class="token operator">=</span> <span class="token builtin">float</span><span class="token punctuation">(</span>overall_rating<span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">' '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">.</span>replace<span class="token punctuation">(</span><span class="token string">','</span><span class="token punctuation">,</span> <span class="token string">'.'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    place<span class="token punctuation">[</span><span class="token string">'rating'</span><span class="token punctuation">]</span> <span class="token operator">=</span> overall_rating
+
+    <span class="token comment"># get address</span>
+    complete_address <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'detail'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+    place<span class="token punctuation">[</span><span class="token string">'address'</span><span class="token punctuation">]</span> <span class="token operator">=</span> complete_address
+
+    <span class="token comment"># get ranking</span>
+    ranking_string <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> 
+				class_<span class="token operator">=</span><span class="token string">'header_popularity popIndexValidation '</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+    absolute_rank <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>ranking_string<span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">' '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+    ranking_length <span class="token operator">=</span> <span class="token builtin">float</span><span class="token punctuation">(</span>ranking_string<span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">' '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">.</span>replace<span class="token punctuation">(</span><span class="token string">'.'</span><span class="token punctuation">,</span> <span class="token string">''</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    place<span class="token punctuation">[</span><span class="token string">'ranking_str'</span><span class="token punctuation">]</span> <span class="token operator">=</span> ranking_string
+    place<span class="token punctuation">[</span><span class="token string">'ranking_abs'</span><span class="token punctuation">]</span> <span class="token operator">=</span> absolute_rank
+    place<span class="token punctuation">[</span><span class="token string">'ranking_rel'</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token builtin">float</span><span class="token punctuation">(</span>absolute_rank<span class="token punctuation">)</span> <span class="token operator">/</span> ranking_length
+
+    <span class="token comment"># get tags</span>
+    tags <span class="token operator">=</span> response<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'detail'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text<span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">','</span><span class="token punctuation">)</span>
+    place<span class="token punctuation">[</span><span class="token string">'tags'</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">[</span>t<span class="token punctuation">.</span>strip<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">for</span> t <span class="token keyword">in</span> tags<span class="token punctuation">]</span>
+
+    <span class="token keyword">return</span> place
+</code></pre>
+<p>In the main function, the interaction with the search bar is defined.</p>
+<pre class=" language-python"><code class="prism  language-python">options <span class="token operator">=</span> Options<span class="token punctuation">(</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--window-size=1366,768"</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--disable-notifications"</span><span class="token punctuation">)</span>
+driver <span class="token operator">=</span> webdriver<span class="token punctuation">.</span>Chrome<span class="token punctuation">(</span>chrome_options<span class="token operator">=</span>options<span class="token punctuation">)</span>
+
+<span class="token comment"># create collection using scraped id as unique identifier</span>
+client <span class="token operator">=</span> MongoClient<span class="token punctuation">(</span><span class="token string">'mongodb://localhost:27017/'</span><span class="token punctuation">)</span>
+db <span class="token operator">=</span> client<span class="token punctuation">[</span><span class="token string">'bip'</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token string">'ta_place'</span><span class="token punctuation">]</span>
+db<span class="token punctuation">.</span>drop<span class="token punctuation">(</span><span class="token punctuation">)</span>
+db<span class="token punctuation">.</span>create_index<span class="token punctuation">(</span><span class="token string">'id_location'</span><span class="token punctuation">,</span> unique<span class="token operator">=</span><span class="token boolean">True</span><span class="token punctuation">)</span>
+
+<span class="token comment"># get main page and refresh because of pop-up</span>
+webpage <span class="token operator">=</span> <span class="token string">'https://www.tripadvisor.it'</span>
+driver<span class="token punctuation">.</span>get<span class="token punctuation">(</span>webpage<span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>refresh<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+<span class="token comment"># open the search bar</span>
+search_div <span class="token operator">=</span> <span class="token string">'div.brand-global-nav-action-search-Search__searchButton--2dmUT'</span>
+driver<span class="token punctuation">.</span>find_element_by_css_selector<span class="token punctuation">(</span>search_div<span class="token punctuation">)</span><span class="token punctuation">.</span>click<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+<span class="token comment"># define a string query and start the search</span>
+query <span class="token operator">=</span> <span class="token string">'milano'</span>
+search_bar <span class="token operator">=</span> driver<span class="token punctuation">.</span>find_element_by_id<span class="token punctuation">(</span><span class="token string">'mainSearch'</span><span class="token punctuation">)</span>
+search_bar<span class="token punctuation">.</span>send_keys<span class="token punctuation">(</span>query<span class="token punctuation">)</span>
+search_bar<span class="token punctuation">.</span>send_keys<span class="token punctuation">(</span>Keys<span class="token punctuation">.</span>RETURN<span class="token punctuation">)</span>
+
+<span class="token comment"># specify the sublist (restaurants, hotels, places,...</span>
+subfilter <span class="token operator">=</span> <span class="token string">'Cose da fare'</span>
+wait <span class="token operator">=</span> WebDriverWait<span class="token punctuation">(</span>driver<span class="token punctuation">,</span> MAX_WAIT<span class="token punctuation">)</span>
+
+field_bt <span class="token operator">=</span> wait<span class="token punctuation">.</span>until<span class="token punctuation">(</span>EC<span class="token punctuation">.</span>element_to_be_clickable<span class="token punctuation">(</span><span class="token punctuation">(</span>By<span class="token punctuation">.</span>LINK_TEXT<span class="token punctuation">,</span> subfilter<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+field_bt<span class="token punctuation">.</span>click<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+<span class="token comment"># wait for search results to load</span>
+wait<span class="token punctuation">.</span>until<span class="token punctuation">(</span>
+	EC<span class="token punctuation">.</span>element_to_be_clickable<span class="token punctuation">(</span><span class="token punctuation">(</span>By<span class="token punctuation">.</span>CSS_SELECTOR<span class="token punctuation">,</span> <span class="token string">'div.search-results-list'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+	<span class="token punctuation">)</span>
+
+response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+
+<span class="token comment"># parse results and store url</span>
+results_list <span class="token operator">=</span> response<span class="token punctuation">.</span>find_all<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'result-title'</span><span class="token punctuation">)</span>
+<span class="token keyword">for</span> elem <span class="token keyword">in</span> results_list<span class="token punctuation">:</span>
+    features <span class="token operator">=</span> elem<span class="token punctuation">[</span><span class="token string">'onclick'</span><span class="token punctuation">]</span><span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">','</span><span class="token punctuation">)</span>
+
+    url <span class="token operator">=</span> webpage <span class="token operator">+</span> features<span class="token punctuation">[</span><span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">.</span>lstrip<span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">:</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">]</span>
+    elem_type <span class="token operator">=</span> features<span class="token punctuation">[</span><span class="token number">4</span><span class="token punctuation">]</span><span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">': '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">:</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">]</span>
+    locationId <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>features<span class="token punctuation">[</span><span class="token number">7</span><span class="token punctuation">]</span><span class="token punctuation">.</span>split<span class="token punctuation">(</span><span class="token string">': '</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">:</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+
+    <span class="token keyword">print</span> <span class="token punctuation">(</span>locationId<span class="token punctuation">,</span> elem_type<span class="token punctuation">,</span> url<span class="token punctuation">)</span>
+
+    <span class="token comment"># insert the page</span>
+    <span class="token keyword">try</span><span class="token punctuation">:</span>
+        db<span class="token punctuation">.</span>insert_one<span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token string">'id_location'</span><span class="token punctuation">:</span> locationId<span class="token punctuation">,</span> <span class="token string">'type'</span><span class="token punctuation">:</span> elem_type<span class="token punctuation">,</span> <span class="token string">'url'</span><span class="token punctuation">:</span> url<span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token keyword">except</span> DuplicateKeyError <span class="token keyword">as</span> e<span class="token punctuation">:</span>
+        <span class="token keyword">print</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+
+    <span class="token comment"># get page</span>
+    driver<span class="token punctuation">.</span>get<span class="token punctuation">(</span>url<span class="token punctuation">)</span>
+    resp <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+
+    <span class="token comment"># scrape place data</span>
+    place_data <span class="token operator">=</span> get_place_data<span class="token punctuation">(</span>resp<span class="token punctuation">)</span>
+
+    <span class="token comment"># update the DB</span>
+    <span class="token keyword">try</span><span class="token punctuation">:</span>
+        db<span class="token punctuation">.</span>update_one<span class="token punctuation">(</span>
+        <span class="token punctuation">{</span><span class="token string">'id_location'</span><span class="token punctuation">:</span> locationId<span class="token punctuation">}</span><span class="token punctuation">,</span> 
+        <span class="token punctuation">{</span><span class="token string">'$set'</span><span class="token punctuation">:</span> place_data<span class="token punctuation">}</span><span class="token punctuation">,</span> 
+        upsert<span class="token operator">=</span><span class="token boolean">False</span><span class="token punctuation">)</span>
+    <span class="token keyword">except</span> Exception <span class="token keyword">as</span> e<span class="token punctuation">:</span>
+        <span class="token keyword">print</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+
+<span class="token comment"># close driver and quit</span>
+driver<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>quit<span class="token punctuation">(</span><span class="token punctuation">)</span>
+client<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+<h3 id="practice-google-maps">Practice: Google Maps</h3>
+<p>Replicate the search bar interaction within Google Maps website.</p>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">from</span> selenium <span class="token keyword">import</span> webdriver
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>chrome<span class="token punctuation">.</span>options <span class="token keyword">import</span> Options
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>keys <span class="token keyword">import</span> Keys
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support<span class="token punctuation">.</span>ui <span class="token keyword">import</span> WebDriverWait
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>by <span class="token keyword">import</span> By
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support <span class="token keyword">import</span> expected_conditions <span class="token keyword">as</span> EC
+<span class="token keyword">from</span> bs4 <span class="token keyword">import</span> BeautifulSoup
+<span class="token keyword">from</span> pymongo <span class="token keyword">import</span> MongoClient
+<span class="token keyword">from</span> pymongo<span class="token punctuation">.</span>errors <span class="token keyword">import</span> DuplicateKeyError
+
+MAX_WAIT <span class="token operator">=</span> <span class="token number">10</span>
+
+
+<span class="token keyword">def</span> <span class="token function">get_place_data</span><span class="token punctuation">(</span>response<span class="token punctuation">)</span><span class="token punctuation">:</span>
+    <span class="token comment"># prepare a dictionary to store results</span>
+    place <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+
+    <span class="token comment"># get place name</span>
+    name <span class="token operator">=</span> 
+    place<span class="token punctuation">[</span><span class="token string">'name'</span><span class="token punctuation">]</span> <span class="token operator">=</span> name<span class="token punctuation">.</span>strip<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+
+    n_reviews <span class="token operator">=</span> 
+    place<span class="token punctuation">[</span><span class="token string">'review'</span><span class="token punctuation">]</span> <span class="token operator">=</span> n_reviews
+
+
+    overall_rating <span class="token operator">=</span> 
+    place<span class="token punctuation">[</span><span class="token string">'rating'</span><span class="token punctuation">]</span> <span class="token operator">=</span> overall_rating
+
+    <span class="token comment"># get address</span>
+    complete_address <span class="token operator">=</span> 
+    place<span class="token punctuation">[</span><span class="token string">'address'</span><span class="token punctuation">]</span> <span class="token operator">=</span> complete_address<span class="token punctuation">.</span>strip<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+    <span class="token comment"># get type of place</span>
+    ptype <span class="token operator">=</span> 
+    place<span class="token punctuation">[</span><span class="token string">'type'</span><span class="token punctuation">]</span> <span class="token operator">=</span> ptype
+
+    <span class="token keyword">return</span> place
+
+
+options <span class="token operator">=</span> Options<span class="token punctuation">(</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--window-size=1366,768"</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--disable-notifications"</span><span class="token punctuation">)</span>
+driver <span class="token operator">=</span> webdriver<span class="token punctuation">.</span>Chrome<span class="token punctuation">(</span>chrome_options<span class="token operator">=</span>options<span class="token punctuation">)</span>
+
+<span class="token comment"># create collection using scraped id as unique identifier</span>
+client <span class="token operator">=</span> MongoClient<span class="token punctuation">(</span><span class="token string">''</span><span class="token punctuation">)</span>
+db <span class="token operator">=</span> client<span class="token punctuation">[</span><span class="token string">'bip'</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token string">'gm_place'</span><span class="token punctuation">]</span>
+db<span class="token punctuation">.</span>drop<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment"># delete results of previous test</span>
+
+<span class="token comment"># get main page</span>
+webpage <span class="token operator">=</span> <span class="token string">'https://www.google.it/maps'</span>
+
+<span class="token comment"># define a string query and start the search</span>
+<span class="token comment"># NOTE: Google Maps check browser geolocalization</span>
+query <span class="token operator">=</span> <span class="token string">'bar'</span>
+search_bar <span class="token operator">=</span> 
+
+<span class="token comment"># wait for search results to load</span>
+
+<span class="token comment"># parse fully loaded page</span>
+response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+
+place_list <span class="token operator">=</span> 
+
+<span class="token comment"># scrape data from search results</span>
+<span class="token keyword">for</span> place <span class="token keyword">in</span> place_list<span class="token punctuation">:</span>
+    p <span class="token operator">=</span> get_place_data<span class="token punctuation">(</span>place<span class="token punctuation">)</span>
+    db<span class="token punctuation">.</span>insert_one<span class="token punctuation">(</span>p<span class="token punctuation">)</span>
+
+<span class="token comment"># close driver and quit</span>
+driver<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>quit<span class="token punctuation">(</span><span class="token punctuation">)</span>
+client<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+</div>
+</body>
+
+</html>

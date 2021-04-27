@@ -1,0 +1,305 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>exercise_2</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="exercise-2">Exercise 2</h2>
+<p>In this exercise, we are going to extract the <strong>reviews</strong> of a set of predefined places and save them into a MongoDB collection.</p>
+<h3 id="example-tripadvisor">Example: TripAdvisor</h3>
+<p>Import and initialization of global variables: it is clear that we have more components to use with respect to exercise 1.</p>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">from</span> selenium <span class="token keyword">import</span> webdriver
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>chrome<span class="token punctuation">.</span>options <span class="token keyword">import</span> Options
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support<span class="token punctuation">.</span>ui <span class="token keyword">import</span> WebDriverWait
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>by <span class="token keyword">import</span> By
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support <span class="token keyword">import</span> expected_conditions <span class="token keyword">as</span> EC
+<span class="token keyword">from</span> bs4 <span class="token keyword">import</span> BeautifulSoup
+<span class="token keyword">import</span> re
+<span class="token keyword">import</span> time
+<span class="token keyword">from</span> pymongo <span class="token keyword">import</span> MongoClient
+<span class="token keyword">from</span> pymongo<span class="token punctuation">.</span>errors <span class="token keyword">import</span> DuplicateKeyError
+
+N_MAX <span class="token operator">=</span> <span class="token number">20</span>
+MAX_WAIT <span class="token operator">=</span> <span class="token number">10</span>
+</code></pre>
+<p>Definition of utilities function to interact with the website:</p>
+<ul>
+<li>First function is needed to click the “Altro” link to load the complete text of the reviews: since it is an AJAX call,  we need to wait that the data is effectively loaded;</li>
+<li>Second function parses the HTML page (similarly to exercise 1): each component has a correspondent tag and class, which allows to be identified and retrieved.</li>
+</ul>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">def</span> <span class="token function">expand_review</span><span class="token punctuation">(</span>driver<span class="token punctuation">)</span><span class="token punctuation">:</span>
+
+    <span class="token comment"># programmatically wait</span>
+    wait <span class="token operator">=</span> WebDriverWait<span class="token punctuation">(</span>driver<span class="token punctuation">,</span> MAX_WAIT<span class="token punctuation">)</span>
+
+    <span class="token comment"># load the complete review text in the HTML</span>
+    <span class="token keyword">try</span><span class="token punctuation">:</span>
+        <span class="token comment"># wait until the element is clickable</span>
+        wait<span class="token punctuation">.</span>until<span class="token punctuation">(</span>EC<span class="token punctuation">.</span>element_to_be_clickable<span class="token punctuation">(</span>
+			        <span class="token punctuation">(</span>By<span class="token punctuation">.</span>CSS_SELECTOR<span class="token punctuation">,</span> <span class="token string">'span.taLnk.ulBlueLinks'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+			       <span class="token punctuation">)</span><span class="token punctuation">.</span>click<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+        <span class="token comment"># wait complete reviews to load</span>
+        time<span class="token punctuation">.</span>sleep<span class="token punctuation">(</span><span class="token number">5</span><span class="token punctuation">)</span>
+
+    <span class="token comment"># Raised if there is no link for expansion (e.g.: set of short reviews)</span>
+    <span class="token keyword">except</span> Exception <span class="token keyword">as</span> e<span class="token punctuation">:</span>
+        <span class="token keyword">print</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+
+
+<span class="token comment"># function to parse a page of reviews</span>
+<span class="token keyword">def</span> <span class="token function">get_review_data</span><span class="token punctuation">(</span>resp<span class="token punctuation">,</span> db<span class="token punctuation">)</span><span class="token punctuation">:</span>
+
+    <span class="token comment"># save place name along with review</span>
+    name <span class="token operator">=</span> resp<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'h1'</span><span class="token punctuation">,</span> attrs<span class="token operator">=</span><span class="token punctuation">{</span><span class="token string">'id'</span><span class="token punctuation">:</span> <span class="token string">'HEADING'</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+    r_list <span class="token operator">=</span> resp<span class="token punctuation">.</span>find_all<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'review-container'</span><span class="token punctuation">)</span>
+
+    reviews <span class="token operator">=</span> <span class="token number">0</span>
+    <span class="token keyword">for</span> idx<span class="token punctuation">,</span> review <span class="token keyword">in</span> <span class="token builtin">enumerate</span><span class="token punctuation">(</span>r_list<span class="token punctuation">)</span><span class="token punctuation">:</span>
+
+        <span class="token comment"># get review id</span>
+        id_review <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>review<span class="token punctuation">[</span><span class="token string">'data-reviewid'</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+
+        <span class="token comment"># get review date</span>
+        review_date <span class="token operator">=</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'ratingDate'</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token string">'title'</span><span class="token punctuation">]</span>
+
+        <span class="token comment"># get reviewer information: username, number of reviews, location</span>
+        info_text <span class="token operator">=</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'info_text'</span><span class="token punctuation">)</span>
+        username <span class="token operator">=</span> info_text<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token boolean">None</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text<span class="token punctuation">.</span>encode<span class="token punctuation">(</span><span class="token string">'utf-8'</span><span class="token punctuation">)</span>
+
+        <span class="token comment"># location is not present for each user</span>
+        <span class="token keyword">if</span> info_text<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'userLoc'</span><span class="token punctuation">)</span> <span class="token keyword">is</span> <span class="token operator">not</span> <span class="token boolean">None</span><span class="token punctuation">:</span>
+            location <span class="token operator">=</span> info_text<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'userLoc'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text<span class="token punctuation">.</span>encode<span class="token punctuation">(</span><span class="token string">'utf-8'</span><span class="token punctuation">)</span>
+        <span class="token keyword">else</span><span class="token punctuation">:</span>
+            location <span class="token operator">=</span> <span class="token boolean">None</span>
+
+        <span class="token comment"># number of reviews is not present for each user</span>
+        <span class="token keyword">if</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'badgetext'</span><span class="token punctuation">)</span> <span class="token keyword">is</span> <span class="token operator">not</span> <span class="token boolean">None</span><span class="token punctuation">:</span>
+            n_user_reviews <span class="token operator">=</span> <span class="token builtin">int</span><span class="token punctuation">(</span>review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'badgetext'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text<span class="token punctuation">)</span>
+        <span class="token keyword">else</span><span class="token punctuation">:</span>
+            n_user_reviews <span class="token operator">=</span> <span class="token boolean">None</span>
+
+        <span class="token comment"># get rating of review using regular expression</span>
+        rating_raw <span class="token operator">=</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> 
+		    <span class="token punctuation">{</span><span class="token string">"class"</span><span class="token punctuation">:</span> re<span class="token punctuation">.</span><span class="token builtin">compile</span><span class="token punctuation">(</span><span class="token string">"ui_bubble_rating\sbubble_.."</span><span class="token punctuation">)</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token string">'class'</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token operator">-</span><span class="token number">2</span><span class="token punctuation">:</span><span class="token punctuation">]</span>
+        rating_review <span class="token operator">=</span> <span class="token builtin">float</span><span class="token punctuation">(</span>rating_raw<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">+</span> <span class="token string">'.'</span> <span class="token operator">+</span> rating_raw<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+
+        <span class="token comment"># get review title</span>
+        title <span class="token operator">=</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'span'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'noQuotes'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+
+        <span class="token comment"># get review complete text</span>
+        caption <span class="token operator">=</span> review<span class="token punctuation">.</span>find<span class="token punctuation">(</span><span class="token string">'p'</span><span class="token punctuation">,</span> class_<span class="token operator">=</span><span class="token string">'partial_entry'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>text
+
+        <span class="token comment"># build review item</span>
+        item <span class="token operator">=</span> <span class="token punctuation">{</span>
+
+            <span class="token string">'name'</span><span class="token punctuation">:</span> name<span class="token punctuation">,</span>
+            <span class="token string">'id_review'</span><span class="token punctuation">:</span> id_review<span class="token punctuation">,</span>
+            <span class="token string">'title'</span><span class="token punctuation">:</span> title<span class="token punctuation">,</span>
+            <span class="token string">'caption'</span><span class="token punctuation">:</span> caption<span class="token punctuation">,</span>
+            <span class="token string">'date'</span><span class="token punctuation">:</span> review_date<span class="token punctuation">,</span>
+            <span class="token string">'rating'</span><span class="token punctuation">:</span> rating_review<span class="token punctuation">,</span>
+            <span class="token string">'username'</span><span class="token punctuation">:</span> username<span class="token punctuation">,</span>
+            <span class="token string">'n_review_user'</span><span class="token punctuation">:</span> n_user_reviews<span class="token punctuation">,</span>
+            <span class="token string">'location'</span><span class="token punctuation">:</span> location
+        <span class="token punctuation">}</span>
+        
+        <span class="token comment"># insert into MongoDB</span>
+        <span class="token keyword">try</span><span class="token punctuation">:</span>
+            db<span class="token punctuation">.</span>insert_one<span class="token punctuation">(</span>item<span class="token punctuation">)</span>
+            reviews <span class="token operator">+=</span> <span class="token number">1</span>
+        <span class="token keyword">except</span> DuplicateKeyError <span class="token keyword">as</span> e<span class="token punctuation">:</span>
+            <span class="token keyword">print</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+
+    <span class="token keyword">return</span> reviews
+</code></pre>
+<p>In the main code, the two functions are called for each url to extract reviews.<br>
+<strong>Scrolling</strong> is introduced to move in the part of the web page where the data is present: in this case is purely illustrative, but in some cases scrolling allows to trigger the load of the data.<br>
+Another element to point out is how to navigate <strong>multiple pages</strong>: URL has a fixed format, so we can “predict” what is the URL for page 2,3,…</p>
+<pre class=" language-python"><code class="prism  language-python">options <span class="token operator">=</span> Options<span class="token punctuation">(</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--window-size=1366,768"</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--disable-notifications"</span><span class="token punctuation">)</span>
+driver <span class="token operator">=</span> webdriver<span class="token punctuation">.</span>Chrome<span class="token punctuation">(</span>chrome_options<span class="token operator">=</span>options<span class="token punctuation">)</span>
+
+<span class="token comment"># create collection using scraped id as unique identifier</span>
+client <span class="token operator">=</span> MongoClient<span class="token punctuation">(</span><span class="token string">'mongodb://localhost:27017/'</span><span class="token punctuation">)</span>
+db <span class="token operator">=</span> client<span class="token punctuation">[</span><span class="token string">'bip'</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token string">'ta_review'</span><span class="token punctuation">]</span>
+
+<span class="token comment"># set unique identifier based</span>
+db<span class="token punctuation">.</span>create_index<span class="token punctuation">(</span><span class="token string">'id_review'</span><span class="token punctuation">,</span> unique<span class="token operator">=</span><span class="token boolean">True</span><span class="token punctuation">)</span>
+
+urls <span class="token operator">=</span> <span class="token builtin">open</span><span class="token punctuation">(</span><span class="token string">'places.txt'</span><span class="token punctuation">)</span>
+<span class="token keyword">for</span> url <span class="token keyword">in</span> urls<span class="token punctuation">:</span>
+
+    <span class="token comment"># get first page of reviews and process</span>
+    driver<span class="token punctuation">.</span>get<span class="token punctuation">(</span>url<span class="token punctuation">)</span>
+
+    <span class="token comment"># scroll and move to the filter section</span>
+    driver<span class="token punctuation">.</span>execute_script<span class="token punctuation">(</span><span class="token string">'window.scrollBy(0,2000)'</span><span class="token punctuation">)</span>
+
+    <span class="token comment"># click</span>
+    expand_review<span class="token punctuation">(</span>driver<span class="token punctuation">)</span>
+
+    <span class="token comment"># send the page manipulated with Selenium to BeautifulSoup parser</span>
+    response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+
+    <span class="token comment"># return the number of scraped reviews</span>
+    n_reviews <span class="token operator">=</span> get_review_data<span class="token punctuation">(</span>response<span class="token punctuation">,</span> db<span class="token punctuation">)</span>
+
+    <span class="token comment"># create template for next pages urls</span>
+    url <span class="token operator">=</span> url<span class="token punctuation">.</span>replace<span class="token punctuation">(</span><span class="token string">'Reviews-'</span><span class="token punctuation">,</span> <span class="token string">'Reviews-or{}-'</span><span class="token punctuation">)</span>
+    offset <span class="token operator">=</span> <span class="token number">0</span>
+    <span class="token keyword">while</span> n_reviews <span class="token operator">&lt;</span> N_MAX<span class="token punctuation">:</span>
+        offset <span class="token operator">+=</span> <span class="token number">10</span>
+        url_ <span class="token operator">=</span> url<span class="token punctuation">.</span><span class="token builtin">format</span><span class="token punctuation">(</span>offset<span class="token punctuation">)</span>
+
+        <span class="token keyword">print</span><span class="token punctuation">(</span><span class="token string">'url: '</span> <span class="token operator">+</span> url<span class="token punctuation">.</span><span class="token builtin">format</span><span class="token punctuation">(</span>offset<span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+        <span class="token comment"># apply the pipeline up to collect enough reviews</span>
+        driver<span class="token punctuation">.</span>get<span class="token punctuation">(</span>url_<span class="token punctuation">)</span>
+        expand_review<span class="token punctuation">(</span>driver<span class="token punctuation">)</span>
+        response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+        n_reviews <span class="token operator">+=</span> get_review_data<span class="token punctuation">(</span>response<span class="token punctuation">,</span> db<span class="token punctuation">)</span>
+
+<span class="token comment"># close resources</span>
+urls<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>quit<span class="token punctuation">(</span><span class="token punctuation">)</span>
+client<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Easily predicting the URL is not always feasible. For this reason, we present a possible interaction<br>
+with the <strong>page button</strong>: the next page button is clicked and reviews are waited for loading; the other steps are exactly the same.</p>
+<pre class=" language-python"><code class="prism  language-python">page_number <span class="token operator">=</span> <span class="token number">1</span>
+    <span class="token keyword">while</span> n_reviews <span class="token operator">&lt;</span> N_MAX<span class="token punctuation">:</span>
+        page_number <span class="token operator">+=</span> <span class="token number">1</span>
+
+        driver<span class="token punctuation">.</span>execute_script<span class="token punctuation">(</span><span class="token string">'window.scrollBy(0,1000)'</span><span class="token punctuation">)</span>
+        driver<span class="token punctuation">.</span>find_element_by_link_text<span class="token punctuation">(</span><span class="token builtin">str</span><span class="token punctuation">(</span>page_number<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span>click<span class="token punctuation">(</span><span class="token punctuation">)</span>
+        time<span class="token punctuation">.</span>sleep<span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">)</span>
+
+        expand_review<span class="token punctuation">(</span>driver<span class="token punctuation">)</span>
+        response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+        n_reviews <span class="token operator">+=</span> get_review_data<span class="token punctuation">(</span>response<span class="token punctuation">,</span> db<span class="token punctuation">)</span>
+</code></pre>
+<h3 id="practice-google-maps">Practice: Google Maps</h3>
+<p>Implement a scraper that retrieves reviews of Google Maps, starting from a set of URLs.<br>
+<strong>Note</strong>: XPath is needed for some interactions.</p>
+<pre class=" language-python"><code class="prism  language-python"><span class="token keyword">from</span> selenium <span class="token keyword">import</span> webdriver
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>chrome<span class="token punctuation">.</span>options <span class="token keyword">import</span> Options
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support<span class="token punctuation">.</span>ui <span class="token keyword">import</span> WebDriverWait
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>common<span class="token punctuation">.</span>by <span class="token keyword">import</span> By
+<span class="token keyword">from</span> selenium<span class="token punctuation">.</span>webdriver<span class="token punctuation">.</span>support <span class="token keyword">import</span> expected_conditions <span class="token keyword">as</span> EC
+<span class="token keyword">from</span> bs4 <span class="token keyword">import</span> BeautifulSoup
+<span class="token keyword">import</span> time
+<span class="token keyword">from</span> datetime <span class="token keyword">import</span> datetime
+<span class="token keyword">from</span> pymongo <span class="token keyword">import</span> MongoClient
+<span class="token keyword">from</span> pymongo<span class="token punctuation">.</span>errors <span class="token keyword">import</span> DuplicateKeyError
+
+N_MAX <span class="token operator">=</span> <span class="token number">20</span>
+MAX_WAIT <span class="token operator">=</span> <span class="token number">10</span>
+MAX_SCROLLS <span class="token operator">=</span> <span class="token number">50</span>
+
+
+<span class="token comment"># function to interact with Google Maps page using Selenium</span>
+<span class="token keyword">def</span> <span class="token function">expand_review</span><span class="token punctuation">(</span>driver<span class="token punctuation">)</span><span class="token punctuation">:</span>
+    <span class="token comment"># HINT: use XPath to load complete reviews</span>
+    links <span class="token operator">=</span> 
+    <span class="token keyword">for</span> l <span class="token keyword">in</span> links<span class="token punctuation">:</span>
+        l<span class="token punctuation">.</span>click<span class="token punctuation">(</span><span class="token punctuation">)</span>
+
+
+options <span class="token operator">=</span> Options<span class="token punctuation">(</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--window-size=1366,768"</span><span class="token punctuation">)</span>
+options<span class="token punctuation">.</span>add_argument<span class="token punctuation">(</span><span class="token string">"--disable-notifications"</span><span class="token punctuation">)</span>
+driver <span class="token operator">=</span> webdriver<span class="token punctuation">.</span>Chrome<span class="token punctuation">(</span>chrome_options<span class="token operator">=</span>options<span class="token punctuation">)</span>
+
+<span class="token comment"># create collection</span>
+client <span class="token operator">=</span> MongoClient<span class="token punctuation">(</span><span class="token punctuation">)</span>
+db <span class="token operator">=</span> client<span class="token punctuation">[</span><span class="token string">'bip'</span><span class="token punctuation">]</span><span class="token punctuation">[</span><span class="token string">'gm_review'</span><span class="token punctuation">]</span>
+
+urls <span class="token operator">=</span> <span class="token builtin">open</span><span class="token punctuation">(</span><span class="token string">'places_gm.txt'</span><span class="token punctuation">)</span>
+<span class="token keyword">for</span> url <span class="token keyword">in</span> urls<span class="token punctuation">:</span>
+
+    <span class="token comment"># go to reviews page</span>
+    link_reviews <span class="token operator">=</span> 
+
+    <span class="token comment"># wait to reviews container to load</span>
+    reviews_container <span class="token operator">=</span> <span class="token string">'div.section-listbox.section-scrollbox.scrollable-y.scrollable-show'</span>
+   
+    <span class="token comment"># load reviews and count to reach the requested number</span>
+    n_reviews_loaded <span class="token operator">=</span> 
+    n_scrolls <span class="token operator">=</span> <span class="token number">0</span>
+    <span class="token keyword">while</span> n_reviews_loaded <span class="token operator">&lt;</span> N_MAX <span class="token operator">and</span> n_scrolls <span class="token operator">&lt;</span> MAX_SCROLLS<span class="token punctuation">:</span>
+
+        <span class="token comment"># get div container of reviews</span>
+        scrollable_div <span class="token operator">=</span> 
+        
+        <span class="token comment"># scroll div to trigger reviews loading</span>
+
+        <span class="token comment"># wait for reviews to load</span>
+
+        <span class="token comment"># expand reviews</span>
+        expand_review<span class="token punctuation">(</span>driver<span class="token punctuation">)</span>
+
+        <span class="token comment"># count reviews to check if enough</span>
+        n_reviews_loaded <span class="token operator">=</span> 
+
+        n_scrolls <span class="token operator">+=</span> <span class="token number">1</span>
+
+    <span class="token comment"># parse loaded reviews with BeautifulSoup</span>
+    response <span class="token operator">=</span> BeautifulSoup<span class="token punctuation">(</span>driver<span class="token punctuation">.</span>page_source<span class="token punctuation">,</span> <span class="token string">'html.parser'</span><span class="token punctuation">)</span>
+    reviews <span class="token operator">=</span> 
+    count <span class="token operator">=</span> <span class="token number">0</span>
+    <span class="token keyword">for</span> idx<span class="token punctuation">,</span> review <span class="token keyword">in</span> <span class="token builtin">enumerate</span><span class="token punctuation">(</span>reviews<span class="token punctuation">)</span><span class="token punctuation">:</span>
+
+        <span class="token comment"># get review id</span>
+        id_review <span class="token operator">=</span> 
+
+        <span class="token comment"># get review date</span>
+        review_date <span class="token operator">=</span> 
+
+        <span class="token comment"># get reviewer information</span>
+        <span class="token comment"># username</span>
+        username <span class="token operator">=</span> 
+
+        <span class="token comment"># get rating of review</span>
+        rating <span class="token operator">=</span> 
+
+        <span class="token comment"># get review complete text</span>
+		caption <span class="token operator">=</span> 
+
+
+        <span class="token comment"># build review item</span>
+        item <span class="token operator">=</span> <span class="token punctuation">{</span>
+
+            <span class="token string">'id_review'</span><span class="token punctuation">:</span> id_review<span class="token punctuation">,</span>
+            <span class="token string">'caption'</span><span class="token punctuation">:</span> caption<span class="token punctuation">,</span>
+            <span class="token string">'date'</span><span class="token punctuation">:</span> review_date<span class="token punctuation">,</span>
+            <span class="token string">'rating'</span><span class="token punctuation">:</span> rating_review<span class="token punctuation">,</span>
+            <span class="token string">'username'</span><span class="token punctuation">:</span> username<span class="token punctuation">,</span>
+            <span class="token string">'timestamp'</span><span class="token punctuation">:</span> datetime<span class="token punctuation">.</span>today<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment"># needed because date field is relative</span>
+        <span class="token punctuation">}</span>
+
+        <span class="token keyword">try</span><span class="token punctuation">:</span>
+            db<span class="token punctuation">.</span>insert_one<span class="token punctuation">(</span>item<span class="token punctuation">)</span>
+            count <span class="token operator">+=</span> <span class="token number">1</span>
+        <span class="token keyword">except</span> DuplicateKeyError <span class="token keyword">as</span> e<span class="token punctuation">:</span>
+            <span class="token keyword">print</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span>
+
+    <span class="token keyword">print</span> <span class="token punctuation">(</span><span class="token string">'Inserted {} new reviews'</span><span class="token punctuation">.</span><span class="token builtin">format</span><span class="token punctuation">(</span>count<span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token comment"># close resources</span>
+urls<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+driver<span class="token punctuation">.</span>quit<span class="token punctuation">(</span><span class="token punctuation">)</span>
+client<span class="token punctuation">.</span>close<span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+</div>
+</body>
+
+</html>
